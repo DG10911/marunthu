@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.marunthu.core.model.SafetyStatus
+import com.marunthu.data.MedicineAdvisor
 import com.marunthu.data.MedicineInfo
 import com.marunthu.lang.LanguageEngine
 import com.marunthu.ui.MarunthuViewModel
@@ -134,6 +135,21 @@ fun ResultScreen(vm: MarunthuViewModel, onScanAnother: () -> Unit, onHome: () ->
                 Spacer(Modifier.height(6.dp))
                 Text(it, style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+        }
+
+        // ---- Advice: food timing / alcohol / pregnancy ----
+        val advisories = primaryMed?.let { MedicineAdvisor.advisories(it.ingredientIds, state.language) }
+            ?: emptyList()
+        if (advisories.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            SoftCard {
+                Text("ℹ️  Advice", fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary)
+                advisories.forEach { a ->
+                    Spacer(Modifier.height(8.dp))
+                    Text("${a.icon}  ${a.text}", style = MaterialTheme.typography.bodyLarge)
+                }
             }
         }
 
