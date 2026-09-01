@@ -3,8 +3,11 @@ package com.marunthu.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.marunthu.core.expiry.ExpiryInfo
+import com.marunthu.core.expiry.ExpiryParser
 import com.marunthu.core.medicine.MedicineMatcher
 import com.marunthu.core.medicine.Substitute
+import java.util.Calendar
 import com.marunthu.core.medicine.SubstituteFinder
 import com.marunthu.core.model.Medicine
 import com.marunthu.core.model.MedicineCandidate
@@ -37,6 +40,8 @@ data class UiState(
     val myMeds: List<Medicine> = emptyList(),
     val profileWarning: String? = null,  // scanned med clashes with a saved My-Med
     val catalogSize: Int = 0,            // number of medicines loaded (shown on home)
+    val expiryInfo: ExpiryInfo? = null,  // EXP date read from the strip
+    val expiryToxic: Boolean = false,    // active ingredient turns harmful once expired
 )
 
 /**
@@ -131,7 +136,14 @@ class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val scanned = (_state.value.scanned + best).takeLast(2)
-        _state.value = _state.value.copy(lastOcrText = text, scanned = scanned, hint = null)
+        // Read the EXP date off the same strip (expiry intelligence).
+        val cal = Calendar.getInstance()
+        val exp = ExpiryParser.parse(text, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
+        val toxic = exp != null && ExpiryParser.becomesToxicWhenExpired(best.medicine.ingredientIds)
+        _state.value = _state.value.copy(
+            lastOcrText = text, scanned = scanned, hint = null,
+            expiryInfo = exp, expiryToxic = toxic,
+        )
         evaluate()
     }
 
@@ -139,7 +151,7 @@ class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
     fun addSampleById(canonicalId: String) {
         val m = DemoCatalog.medicines.firstOrNull { it.canonicalId == canonicalId } ?: return
         val scanned = (_state.value.scanned + MedicineCandidate(m, 0.97, m.brandName)).takeLast(2)
-        _state.value = _state.value.copy(scanned = scanned)
+        _state.value = _state.value.copy(scanned = scanned, expiryInfo = null, expiryToxic = false)
         evaluate()
     }
 
@@ -189,6 +201,7 @@ class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             scanned = emptyList(), result = null, message = null,
             lastOcrText = "", hint = null, substitute = null, profileWarning = null,
+            expiryInfo = null, expiryToxic = false,
         )
     }
 

@@ -1,5 +1,6 @@
 package com.marunthu.lang
 
+import com.marunthu.core.expiry.ExpiryInfo
 import com.marunthu.core.medicine.Substitute
 import com.marunthu.core.model.ReasonCode
 import com.marunthu.core.model.SafetyStatus
@@ -59,6 +60,17 @@ object LanguageEngine {
         return tmpl.replace("{name}", sub.medicine.brandName)
             .replace("{price}", (sub.medicine.priceInr?.toInt() ?: 0).toString())
             .replace("{pct}", sub.savingsPercent.toString())
+    }
+
+    /** Localized expiry warning; empty string when the medicine is neither expired nor due soon. */
+    fun expiryLine(info: ExpiryInfo, toxicWhenExpired: Boolean, lang: String): String {
+        val e = EXP[lang] ?: EXP["en"]!!
+        val base = when {
+            info.expired -> e[0].replace("{d}", info.text)
+            info.expiringSoon -> e[1].replace("{d}", info.text)
+            else -> return ""
+        }
+        return if (info.expired && toxicWhenExpired) "$base ${e[2]}" else base
     }
 
     private fun pick(m: Map<String, Map<ReasonCode, String>>, lang: String, r: ReasonCode): String =
@@ -176,5 +188,33 @@ object LanguageEngine {
         "te" to "అదే మందు \"{name}\" ₹{price}కి లభిస్తుంది — {pct}% ఆదా. ఫార్మసిస్ట్‌ను అడిగి కొనండి.",
         "kn" to "ಅದೇ ಔಷಧಿ \"{name}\" ₹{price}ಗೆ ಸಿಗುತ್ತದೆ — {pct}% ಉಳಿತಾಯ. ಔಷಧಿಕಾರರನ್ನು ಕೇಳಿ ಖರೀದಿಸಿ.",
         "ml" to "അതേ മരുന്ന് \"{name}\" ₹{price}ന് ലഭ്യമാണ് — {pct}% ലാഭം. ഫാർമസിസ്റ്റിനോട് ചോദിച്ച് വാങ്ങുക.",
+    )
+
+    // ---- expiry: lang -> [expired {d}, expiringSoon {d}, toxic suffix] ----
+    private val EXP: Map<String, List<String>> = mapOf(
+        "en" to listOf(
+            "This medicine expired ({d}). Do not use expired medicine.",
+            "This medicine expires soon ({d}). Use it before then or replace it.",
+            "Expired medicine of this type can harm your kidneys — throw it away."),
+        "ta" to listOf(
+            "இந்த மருந்து காலாவதியாகிவிட்டது ({d}). காலாவதியான மருந்தை பயன்படுத்த வேண்டாம்.",
+            "இந்த மருந்து விரைவில் காலாவதியாகும் ({d}). அதற்குள் பயன்படுத்துங்கள் அல்லது மாற்றுங்கள்.",
+            "இந்த வகை காலாவதியான மருந்து சிறுநீரகத்திற்கு தீங்கு விளைவிக்கலாம் — தூக்கி எறியுங்கள்."),
+        "hi" to listOf(
+            "यह दवा एक्सपायर हो चुकी है ({d})। एक्सपायर दवा का उपयोग न करें।",
+            "यह दवा जल्द एक्सपायर होगी ({d})। उससे पहले उपयोग करें या बदल दें।",
+            "इस प्रकार की एक्सपायर दवा किडनी को नुकसान पहुँचा सकती है — इसे फेंक दें।"),
+        "te" to listOf(
+            "ఈ మందు గడువు ముగిసింది ({d}). గడువు ముగిసిన మందును వాడకండి.",
+            "ఈ మందు త్వరలో గడువు ముగుస్తుంది ({d}). అంతకుముందు వాడండి లేదా మార్చండి.",
+            "ఇలాంటి గడువు ముగిసిన మందు మూత్రపిండాలకు హాని కలిగించవచ్చు — పారేయండి."),
+        "kn" to listOf(
+            "ಈ ಔಷಧಿ ಅವಧಿ ಮೀರಿದೆ ({d}). ಅವಧಿ ಮೀರಿದ ಔಷಧಿಯನ್ನು ಬಳಸಬೇಡಿ.",
+            "ಈ ಔಷಧಿ ಶೀಘ್ರದಲ್ಲೇ ಅವಧಿ ಮೀರುತ್ತದೆ ({d}). ಅದಕ್ಕೂ ಮೊದಲು ಬಳಸಿ ಅಥವಾ ಬದಲಾಯಿಸಿ.",
+            "ಈ ರೀತಿಯ ಅವಧಿ ಮೀರಿದ ಔಷಧಿ ಮೂತ್ರಪಿಂಡಗಳಿಗೆ ಹಾನಿ ಮಾಡಬಹುದು — ಎಸೆದುಬಿಡಿ."),
+        "ml" to listOf(
+            "ഈ മരുന്നിന്റെ കാലാവധി കഴിഞ്ഞു ({d}). കാലാവധി കഴിഞ്ഞ മരുന്ന് ഉപയോഗിക്കരുത്.",
+            "ഈ മരുന്നിന്റെ കാലാവധി ഉടൻ കഴിയും ({d}). അതിനുമുമ്പ് ഉപയോഗിക്കുക അല്ലെങ്കിൽ മാറ്റുക.",
+            "ഇത്തരം കാലാവധി കഴിഞ്ഞ മരുന്ന് വൃക്കകൾക്ക് ദോഷം ചെയ്യാം — ഉപേക്ഷിക്കുക."),
     )
 }

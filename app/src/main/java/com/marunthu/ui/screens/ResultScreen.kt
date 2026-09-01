@@ -109,6 +109,19 @@ fun ResultScreen(vm: MarunthuViewModel, onScanAnother: () -> Unit, onHome: () ->
             }
         }
 
+        // ---- Expiry intelligence (read off the strip) ----
+        state.expiryInfo?.takeIf { it.expired || it.expiringSoon }?.let { exp ->
+            Spacer(Modifier.height(14.dp))
+            val c = if (exp.expired) DangerRed else WarnAmber
+            SoftCard(accent = c.copy(alpha = 0.12f)) {
+                Text(if (exp.expired) "⛔ Expired medicine" else "⏳ Expiring soon",
+                    fontWeight = FontWeight.Bold, color = c)
+                Spacer(Modifier.height(6.dp))
+                Text(LanguageEngine.expiryLine(exp, state.expiryToxic, state.language),
+                    fontSize = 16.sp)
+            }
+        }
+
         // ---- What it's for (medicine uses) ----
         val primaryMed = state.scanned.lastOrNull()?.medicine
         val uses = primaryMed?.let { MedicineInfo.usesFor(it.ingredientIds, state.language) }
