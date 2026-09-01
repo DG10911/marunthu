@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Marunthu</string>
+    <string name="tagline">Medicine safety. In your language. Without the internet.</string>
+    <string name="disclaimer">Safety information is based on a local prototype database. Always confirm medication changes with a qualified healthcare professional. Marunthu is not a doctor and does not diagnose or prescribe.</string>
+</resources>
