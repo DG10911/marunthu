@@ -2,6 +2,8 @@ package com.marunthu.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -127,7 +129,10 @@ fun LanguageSelector(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(50),
     ) {
-        Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             options.forEach { (code, label) ->
                 val active = code == selected
                 Surface(

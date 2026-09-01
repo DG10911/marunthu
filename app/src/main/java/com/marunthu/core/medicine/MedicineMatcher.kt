@@ -48,7 +48,14 @@ class MedicineMatcher(private val catalog: List<Medicine>) {
             .map { med ->
                 val nameScore = bestTokenScore(queryTokens, med.searchableTokens)
                 val strengthBonus = strengthAgreement(strength, med)
-                val confidence = (nameScore * 0.85 + strengthBonus * 0.15).coerceIn(0.0, 1.0)
+                // Reward medicines where 2+ of their tokens (brand + generic) strongly match
+                // the OCR text — favours a full-name hit over a coincidental single-token match.
+                val strongMatches = med.searchableTokens.count { t ->
+                    t.length >= 4 && queryTokens.any { q -> similarity(q, t) >= 0.8 }
+                }
+                val multiBonus = if (strongMatches >= 2) 0.08 else 0.0
+                val confidence = (nameScore * 0.85 + strengthBonus * 0.15 + multiBonus)
+                    .coerceIn(0.0, 1.0)
                 MedicineCandidate(med, confidence, ocrText.trim())
             }
             .filter { it.confidence > 0.30 }
