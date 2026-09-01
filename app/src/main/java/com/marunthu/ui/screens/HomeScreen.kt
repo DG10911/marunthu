@@ -81,6 +81,14 @@ fun HomeScreen(vm: MarunthuViewModel, onScan: () -> Unit) {
                 onClick = onScan,
             )
 
+            if (state.catalogSize > 0) {
+                Spacer(Modifier.height(12.dp))
+                Text("🗂️  ${"%,d".format(state.catalogSize)} medicines · fully offline",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp))
+            }
+
             Spacer(Modifier.height(28.dp))
             Text("Speak the result in", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

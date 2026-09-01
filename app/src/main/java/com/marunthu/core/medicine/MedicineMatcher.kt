@@ -8,10 +8,25 @@ import kotlin.math.min
 
 /**
  * Resolves noisy OCR text to ranked [MedicineCandidate]s against the local catalog.
- * Pure Kotlin — unit tested. Tolerant of OCR errors ("METFORNIN" -> Metformin) but
- * NEVER silently certain: every match carries a confidence the UX gates on.
+ * Pure Kotlin — unit tested. Tolerant of OCR errors ("METFORNIN" -> Metformin) but never
+ * silently certain: every match carries a confidence the UX gates on.
+ *
+ * Scales to tens of thousands of medicines via a 3-char prefix inverted index: instead of
+ * fuzzy-scoring the whole catalog on every scan, we only score medicines that share a token
+ * prefix with the OCR text. Built once at construction.
  */
 class MedicineMatcher(private val catalog: List<Medicine>) {
+
+    // token-prefix(3 chars) -> medicine indices that contain a token with that prefix
+    private val index: HashMap<String, MutableList<Int>> = HashMap()
+
+    init {
+        catalog.forEachIndexed { idx, med ->
+            med.searchableTokens.forEach { tok ->
+                if (tok.length >= 3) index.getOrPut(tok.substring(0, 3)) { ArrayList() }.add(idx)
+            }
+        }
+    }
 
     /** @return candidates sorted by descending confidence, best first. */
     fun match(ocrText: String, limit: Int = 5): List<MedicineCandidate> {
@@ -19,18 +34,29 @@ class MedicineMatcher(private val catalog: List<Medicine>) {
         if (queryTokens.isEmpty()) return emptyList()
         val strength = TextNormalizer.extractStrength(ocrText)
 
-        return catalog.map { med ->
-            val nameScore = bestTokenScore(queryTokens, med.searchableTokens)
-            val strengthBonus = strengthAgreement(strength, med)
-            // Weighted: name dominates; strength nudges among same-brand variants.
-            val confidence = (nameScore * 0.85 + strengthBonus * 0.15).coerceIn(0.0, 1.0)
-            MedicineCandidate(med, confidence, ocrText.trim())
-        }.filter { it.confidence > 0.30 }
+        // Gather candidate medicine indices sharing a 3-char token prefix with the query.
+        val candidates = LinkedHashSet<Int>()
+        for (q in queryTokens) if (q.length >= 3) index[q.substring(0, 3)]?.let { candidates.addAll(it) }
+        // Small catalogs (demo) or a total miss: fall back to scanning everything.
+        val pool: Iterable<Int> =
+            if (candidates.isEmpty()) {
+                if (catalog.size <= 500) catalog.indices else return emptyList()
+            } else candidates
+
+        return pool.asSequence()
+            .map { catalog[it] }
+            .map { med ->
+                val nameScore = bestTokenScore(queryTokens, med.searchableTokens)
+                val strengthBonus = strengthAgreement(strength, med)
+                val confidence = (nameScore * 0.85 + strengthBonus * 0.15).coerceIn(0.0, 1.0)
+                MedicineCandidate(med, confidence, ocrText.trim())
+            }
+            .filter { it.confidence > 0.30 }
             .sortedByDescending { it.confidence }
             .take(limit)
+            .toList()
     }
 
-    /** Best fuzzy similarity between any query token and any catalog token. */
     private fun bestTokenScore(query: List<String>, target: List<String>): Double {
         var best = 0.0
         for (q in query) for (t in target) {
@@ -41,7 +67,7 @@ class MedicineMatcher(private val catalog: List<Medicine>) {
     }
 
     private fun strengthAgreement(strength: Pair<Double, String>?, med: Medicine): Double {
-        if (strength == null || med.strengthValue == null) return 0.5 // neutral
+        if (strength == null || med.strengthValue == null) return 0.5
         val sameUnit = strength.second.equals(med.strengthUnit, ignoreCase = true)
         val sameValue = strength.first == med.strengthValue
         return when {
@@ -51,7 +77,6 @@ class MedicineMatcher(private val catalog: List<Medicine>) {
         }
     }
 
-    /** Normalized similarity in [0,1] from Levenshtein edit distance. */
     private fun similarity(a: String, b: String): Double {
         if (a == b) return 1.0
         val d = levenshtein(a, b)

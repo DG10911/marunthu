@@ -11,8 +11,10 @@ import com.marunthu.core.model.MedicineCandidate
 import com.marunthu.core.model.SafetyStatus
 import com.marunthu.core.model.StructuredResult
 import com.marunthu.core.safety.SafetyEngine
+import com.marunthu.data.CatalogLoader
 import com.marunthu.data.DemoCatalog
 import com.marunthu.data.MyMedsRepository
+import kotlinx.coroutines.Dispatchers
 import com.marunthu.lang.LanguageEngine
 import com.marunthu.lang.LocalizedSafetyMessage
 import com.marunthu.llm.LlmRephraser
@@ -34,6 +36,7 @@ data class UiState(
     val substitute: Substitute? = null,
     val myMeds: List<Medicine> = emptyList(),
     val profileWarning: String? = null,  // scanned med clashes with a saved My-Med
+    val catalogSize: Int = 0,            // number of medicines loaded (shown on home)
 )
 
 /**
@@ -42,9 +45,11 @@ data class UiState(
  */
 class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val matcher = MedicineMatcher(DemoCatalog.medicines)
+    // Start with the small demo catalog (instant); the full 60k catalog loads in the
+    // background and swaps in (see loadFullCatalog).
+    @Volatile private var matcher = MedicineMatcher(DemoCatalog.medicines)
     private val engine = SafetyEngine(DemoCatalog.rules)
-    private val substitutes = SubstituteFinder(DemoCatalog.medicines)
+    @Volatile private var substitutes = SubstituteFinder(DemoCatalog.medicines)
     private val myMedsRepo by lazy { MyMedsRepository(getApplication()) }
     private val tts by lazy { TtsService(getApplication()) }
 
@@ -88,7 +93,26 @@ class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     // Runs AFTER _state is initialized (Kotlin executes init blocks in declaration order).
-    init { refreshMyMeds() }
+    init {
+        refreshMyMeds()
+        loadFullCatalog()
+    }
+
+    /** Load the full 60k offline catalog off the main thread, then swap in the matcher. */
+    private fun loadFullCatalog() {
+        viewModelScope.launch(Dispatchers.Default) {
+            val big = CatalogLoader.load(getApplication())
+            if (big.isNotEmpty()) {
+                val seen = HashSet<String>()
+                val combined = (DemoCatalog.medicines + big).filter { seen.add(it.canonicalId) }
+                matcher = MedicineMatcher(combined)
+                substitutes = SubstituteFinder(combined)
+                _state.value = _state.value.copy(catalogSize = combined.size)
+            } else {
+                _state.value = _state.value.copy(catalogSize = DemoCatalog.medicines.size)
+            }
+        }
+    }
 
     fun setLanguage(code: String) {
         _state.value = _state.value.copy(language = code)
