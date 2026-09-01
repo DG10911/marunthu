@@ -128,10 +128,13 @@ class MarunthuViewModel(app: Application) : AndroidViewModel(app) {
     /** Called with raw ML Kit OCR text after each capture. Adds the best candidate. */
     fun onOcrText(text: String) {
         val best = matcher.match(text).firstOrNull()
-        if (best == null) {
+        // Refuse to guess: a low-confidence match on messy OCR would be a dangerous false
+        // positive. Ask the user to aim at the brand name or the ingredient (salt) list.
+        if (best == null || best.confidence < 0.70) {
             _state.value = _state.value.copy(
                 lastOcrText = text,
-                hint = "Couldn't read the strip. Hold steady, add light, or use a Sample below.",
+                hint = "Couldn't identify this medicine clearly. Point at the brand name or the " +
+                    "ingredient list, and hold steady in good light.",
             )
             return
         }

@@ -8,24 +8,56 @@ import kotlin.math.min
 
 /**
  * Resolves noisy OCR text to ranked [MedicineCandidate]s against the local catalog.
- * Pure Kotlin — unit tested. Tolerant of OCR errors ("METFORNIN" -> Metformin) but never
- * silently certain: every match carries a confidence the UX gates on.
+ * Pure Kotlin — unit tested.
  *
- * Scales to tens of thousands of medicines via a 3-char prefix inverted index: instead of
- * fuzzy-scoring the whole catalog on every scan, we only score medicines that share a token
- * prefix with the OCR text. Built once at construction.
+ * Two matching signals, whichever is stronger:
+ *  1. BRAND fuzzy match (tolerant of OCR typos) via a 3-char prefix index.
+ *  2. COMPOSITION match — Indian strips always print the salt list ("Paracetamol +
+ *     Phenylephrine + Chlorpheniramine"), which OCR reads cleanly. We detect ingredient
+ *     names in the text and identify the medicine by its exact composition. This is far more
+ *     reliable than the stylised brand logo, and it means we can flag safety even when the
+ *     brand isn't captured.
+ *
+ * Crucially it does NOT force a confident guess: weak matches score low so the UI can say
+ * "couldn't identify — try again" instead of returning a wrong medicine.
  */
 class MedicineMatcher(private val catalog: List<Medicine>) {
 
-    // token-prefix(3 chars) -> medicine indices that contain a token with that prefix
-    private val index: HashMap<String, MutableList<Int>> = HashMap()
+    private val brandIndex = HashMap<String, MutableList<Int>>()      // token prefix -> med idx
+    private val ingredientNames: List<String>                        // distinct ingredient ids
+    private val ingredientIndex = HashMap<String, MutableList<Int>>() // prefix -> ingredientNames idx
+    private val compositionIndex = HashMap<String, MutableList<Int>>()// sorted salt key -> med idx
 
     init {
         catalog.forEachIndexed { idx, med ->
             med.searchableTokens.forEach { tok ->
-                if (tok.length >= 3) index.getOrPut(tok.substring(0, 3)) { ArrayList() }.add(idx)
+                if (tok.length >= 3) brandIndex.getOrPut(tok.substring(0, 3)) { ArrayList() }.add(idx)
+            }
+            if (med.ingredientIds.isNotEmpty())
+                compositionIndex.getOrPut(compKey(med.ingredientIds)) { ArrayList() }.add(idx)
+        }
+        val ings = LinkedHashSet<String>()
+        catalog.forEach { ings.addAll(it.ingredientIds) }
+        ingredientNames = ings.toList()
+        ingredientNames.forEachIndexed { i, name ->
+            val n = name.lowercase()
+            if (n.length >= 3) ingredientIndex.getOrPut(n.substring(0, 3)) { ArrayList() }.add(i)
+        }
+    }
+
+    private fun compKey(ings: List<String>) = ings.sorted().joinToString("+")
+
+    /** Ingredient ids whose names appear (fuzzily) in the OCR tokens. */
+    private fun detectIngredients(tokens: List<String>): Set<String> {
+        val found = LinkedHashSet<String>()
+        for (t in tokens) {
+            if (t.length < 4) continue
+            ingredientIndex[t.substring(0, 3)]?.forEach { i ->
+                val name = ingredientNames[i]
+                if (similarity(t, name.lowercase()) >= 0.82) found.add(name)
             }
         }
+        return found
     }
 
     /** @return candidates sorted by descending confidence, best first. */
@@ -33,30 +65,42 @@ class MedicineMatcher(private val catalog: List<Medicine>) {
         val queryTokens = TextNormalizer.tokens(ocrText)
         if (queryTokens.isEmpty()) return emptyList()
         val strength = TextNormalizer.extractStrength(ocrText)
+        val detected = detectIngredients(queryTokens)
 
-        // Gather candidate medicine indices sharing a 3-char token prefix with the query.
         val candidates = LinkedHashSet<Int>()
-        for (q in queryTokens) if (q.length >= 3) index[q.substring(0, 3)]?.let { candidates.addAll(it) }
-        // Small catalogs (demo) or a total miss: fall back to scanning everything.
-        val pool: Iterable<Int> =
-            if (candidates.isEmpty()) {
-                if (catalog.size <= 500) catalog.indices else return emptyList()
-            } else candidates
+        for (q in queryTokens) if (q.length >= 3) brandIndex[q.substring(0, 3)]?.let { candidates.addAll(it) }
+        if (detected.isNotEmpty()) compositionIndex[compKey(detected.toList())]?.let { candidates.addAll(it) }
+
+        val pool: Iterable<Int> = when {
+            candidates.isNotEmpty() -> candidates
+            catalog.size <= 500 -> catalog.indices
+            else -> return emptyList()
+        }
 
         return pool.asSequence()
             .map { catalog[it] }
             .map { med ->
-                val nameScore = bestTokenScore(queryTokens, med.searchableTokens)
+                val brand = bestTokenScore(queryTokens, med.searchableTokens)
                 val strengthBonus = strengthAgreement(strength, med)
-                // Reward medicines where 2+ of their tokens (brand + generic) strongly match
-                // the OCR text — favours a full-name hit over a coincidental single-token match.
                 val strongMatches = med.searchableTokens.count { t ->
                     t.length >= 4 && queryTokens.any { q -> similarity(q, t) >= 0.8 }
                 }
                 val multiBonus = if (strongMatches >= 2) 0.08 else 0.0
-                val confidence = (nameScore * 0.85 + strengthBonus * 0.15 + multiBonus)
-                    .coerceIn(0.0, 1.0)
-                MedicineCandidate(med, confidence, ocrText.trim())
+                val brandConf = (brand * 0.85 + strengthBonus * 0.15 + multiBonus).coerceIn(0.0, 1.0)
+
+                val compConf = if (med.ingredientIds.isNotEmpty() && detected.isNotEmpty()) {
+                    val hits = med.ingredientIds.count { it in detected }
+                    val coverage = hits.toDouble() / med.ingredientIds.size
+                    val exact = coverage == 1.0 && med.ingredientIds.size == detected.size
+                    when {
+                        exact -> 0.92
+                        coverage == 1.0 -> 0.82   // all salts present (+ extra text detected)
+                        hits >= 2 -> 0.6 + 0.1 * coverage
+                        else -> 0.0
+                    }
+                } else 0.0
+
+                MedicineCandidate(med, max(brandConf, compConf), ocrText.trim())
             }
             .filter { it.confidence > 0.30 }
             .sortedByDescending { it.confidence }
