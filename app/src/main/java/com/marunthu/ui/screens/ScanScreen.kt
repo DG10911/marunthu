@@ -1,7 +1,11 @@
 package com.marunthu.ui.screens
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -40,7 +44,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.marunthu.ocr.MlKitOcr
 import com.marunthu.ui.MarunthuViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
@@ -51,6 +57,21 @@ fun ScanScreen(vm: MarunthuViewModel, onDone: () -> Unit, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ocr = remember { MlKitOcr() }
     val imageCapture = remember { ImageCapture.Builder().build() }
+
+    // "Choose photo" — pick a clear image from the gallery and run the same OCR pipeline.
+    // Great fallback when live-camera OCR struggles (bad light / blur / crumpled strip).
+    val pickPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val bmp = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                }.getOrNull()
+            }
+            if (bmp != null) vm.onOcrText(ocr.recognize(bmp))
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp)) {
         Text("Point at a medicine strip", style = MaterialTheme.typography.titleLarge)
@@ -108,25 +129,32 @@ fun ScanScreen(vm: MarunthuViewModel, onDone: () -> Unit, onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(8.dp))
-        Button(
-            onClick = {
-                imageCapture.takePicture(
-                    ContextCompat.getMainExecutor(context),
-                    object : ImageCapture.OnImageCapturedCallback() {
-                        override fun onCaptureSuccess(image: ImageProxy) {
-                            val bmp = image.toBitmap().rotate(image.imageInfo.rotationDegrees)
-                            image.close()
-                            scope.launch {
-                                val text = ocr.recognize(bmp)
-                                vm.onOcrText(text)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    imageCapture.takePicture(
+                        ContextCompat.getMainExecutor(context),
+                        object : ImageCapture.OnImageCapturedCallback() {
+                            override fun onCaptureSuccess(image: ImageProxy) {
+                                val bmp = image.toBitmap().rotate(image.imageInfo.rotationDegrees)
+                                image.close()
+                                scope.launch { vm.onOcrText(ocr.recognize(bmp)) }
                             }
-                        }
-                        override fun onError(exc: ImageCaptureException) { /* keep camera alive */ }
-                    },
-                )
-            },
-            modifier = Modifier.fillMaxWidth().height(64.dp),
-        ) { Text("Capture") }
+                            override fun onError(exc: ImageCaptureException) { /* keep camera alive */ }
+                        },
+                    )
+                },
+                modifier = Modifier.weight(1f).height(64.dp),
+            ) { Text("📷 Capture") }
+            OutlinedButton(
+                onClick = {
+                    pickPhoto.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                modifier = Modifier.weight(1f).height(64.dp),
+            ) { Text("🖼️ Choose photo") }
+        }
 
         Spacer(Modifier.height(8.dp))
         // FAILURE-RESISTANT BACKUP: inject known demo medicines if live OCR struggles.

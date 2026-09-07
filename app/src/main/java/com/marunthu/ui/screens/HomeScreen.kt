@@ -2,6 +2,8 @@ package com.marunthu.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -105,10 +107,25 @@ fun HomeScreen(vm: MarunthuViewModel, onScan: () -> Unit) {
                     Text("💊  My Meds",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text("${state.myMeds.size} saved · every new scan is checked against these",
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    state.myMeds.forEach { med ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("• ${med.brandName}  (${med.genericName})",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f))
+                            TextButton(onClick = { vm.removeFromMyMeds(med.canonicalId) }) {
+                                Text("Remove")
+                            }
+                        }
+                    }
                 }
             }
 
